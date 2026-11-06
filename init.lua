@@ -91,7 +91,7 @@ vim.g.mapleader = ' '
 vim.g.maplocalleader = ' '
 
 -- Set to true if you have a Nerd Font installed and selected in the terminal
-vim.g.have_nerd_font = false
+vim.g.have_nerd_font = true
 
 -- [[ Setting options ]]
 -- See `:help vim.o`
@@ -141,6 +141,31 @@ vim.o.timeoutlen = 300
 vim.o.splitright = true
 vim.o.splitbelow = true
 
+-- Use spaces instead of tabs for indentation.
+--  expandtab   -> pressing <Tab> inserts spaces
+--  shiftwidth  -> number of spaces used for each step of (auto)indent
+--  tabstop     -> number of spaces a literal <Tab> counts for
+--  softtabstop -> number of spaces <Tab>/<BS> feel like while editing
+--  See `:help 'expandtab'`
+vim.o.expandtab = true
+vim.o.shiftwidth = 4
+vim.o.tabstop = 4
+vim.o.softtabstop = 4
+vim.o.smartindent = true
+
+-- Filetypes that conventionally use 2-space indentation (YAML in particular
+-- is whitespace-sensitive and must never contain tab characters).
+vim.api.nvim_create_autocmd('FileType', {
+  desc = 'Use 2-space indentation for YAML and other 2-space filetypes',
+  pattern = { 'yaml', 'yml', 'json', 'lua', 'html', 'css', 'javascript', 'typescript' },
+  callback = function()
+    vim.bo.expandtab = true
+    vim.bo.shiftwidth = 2
+    vim.bo.tabstop = 2
+    vim.bo.softtabstop = 2
+  end,
+})
+
 -- Sets how neovim will display certain whitespace characters in the editor.
 --  See `:help 'list'`
 --  and `:help 'listchars'`
@@ -165,6 +190,9 @@ vim.o.scrolloff = 10
 -- instead raise a dialog asking if you wish to save the current file(s)
 -- See `:help 'confirm'`
 vim.o.confirm = true
+
+-- Set a text width ruler for easy identification of when your text should wrap
+vim.opt.colorcolumn = '80'
 
 -- [[ Basic Keymaps ]]
 --  See `:help vim.keymap.set()`
@@ -247,7 +275,31 @@ rtp:prepend(lazypath)
 -- NOTE: Here is where you install your plugins.
 require('lazy').setup({
   -- NOTE: Plugins can be added with a link (or for a github repo: 'owner/repo' link).
-  'NMAC427/guess-indent.nvim', -- Detect tabstop and shiftwidth automatically
+  { -- Detect tabstop and shiftwidth automatically
+    'NMAC427/guess-indent.nvim',
+    opts = {
+      -- Exclude whitespace-sensitive / space-only filetypes from auto-detection
+      -- so our global expandtab and the 2-space FileType autocmd always win.
+      -- (YAML must never contain tabs, so we never want guess-indent flipping
+      -- expandtab off for it based on a stray tab.)
+      filetype_exclude = {
+        'netrw',
+        'tutor',
+        'yaml',
+      },
+      -- Defaults below are kept explicit for clarity: on detecting spaces, use
+      -- them; on detecting tabs, match the file. Spaces remain the fallback.
+      on_tab_options = {
+        ['expandtab'] = false,
+      },
+      on_space_options = {
+        ['expandtab'] = true,
+        ['tabstop'] = 'detected',
+        ['softtabstop'] = 'detected',
+        ['shiftwidth'] = 'detected',
+      },
+    },
+  },
 
   -- NOTE: Plugins can also be added by using a table,
   -- with the first argument being the link and the following
@@ -673,7 +725,14 @@ require('lazy').setup({
       local servers = {
         -- clangd = {},
         -- gopls = {},
-        -- pyright = {},
+        pyright = {},
+        yamlls = {
+          settings = {
+            yaml = {
+              schemaStore = { enable = true },
+            },
+          },
+        },
         -- rust_analyzer = {},
         -- ... etc. See `:help lspconfig-all` for a list of all the pre-configured LSPs
         --
@@ -716,6 +775,8 @@ require('lazy').setup({
       local ensure_installed = vim.tbl_keys(servers or {})
       vim.list_extend(ensure_installed, {
         'stylua', -- Used to format Lua code
+        'markdownlint', -- Markdown linter (used by nvim-lint)
+        'prettier', -- Formatter for yaml/json/markdown (used by conform)
       })
       require('mason-tool-installer').setup { ensure_installed = ensure_installed }
 
@@ -769,10 +830,13 @@ require('lazy').setup({
       formatters_by_ft = {
         lua = { 'stylua' },
         -- Conform can also run multiple formatters sequentially
-        -- python = { "isort", "black" },
-        --
-        -- You can use 'stop_after_first' to run the first available formatter from the list
-        -- javascript = { "prettierd", "prettier", stop_after_first = true },
+        python = { 'autopep8', 'isort', 'black' },
+        -- Use 'stop_after_first' to run the first available formatter from the list.
+        -- prettierd is faster (daemon); prettier is the fallback if it's absent.
+        yaml = { 'prettierd', 'prettier', stop_after_first = true },
+        json = { 'prettierd', 'prettier', stop_after_first = true },
+        jsonc = { 'prettierd', 'prettier', stop_after_first = true },
+        markdown = { 'prettierd', 'prettier', stop_after_first = true },
       },
     },
   },
@@ -894,7 +958,10 @@ require('lazy').setup({
       -- Load the colorscheme here.
       -- Like many other themes, this one has different styles, and you could load
       -- any other, such as 'tokyonight-storm', 'tokyonight-moon', or 'tokyonight-day'.
-      vim.cmd.colorscheme 'tokyonight-night'
+      -- DISABLED: tritan-dark (lua/custom/plugins/tritan-dark.lua) is the default
+      -- colorscheme. tokyonight stays installed as a fallback — re-enable this
+      -- line (and comment out tritan-dark's load) to switch back.
+      -- vim.cmd.colorscheme 'tokyonight-night'
     end,
   },
 
@@ -944,7 +1011,7 @@ require('lazy').setup({
     main = 'nvim-treesitter.configs', -- Sets main module to use for opts
     -- [[ Configure Treesitter ]] See `:help nvim-treesitter`
     opts = {
-      ensure_installed = { 'bash', 'c', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'query', 'vim', 'vimdoc' },
+      ensure_installed = { 'bash', 'c', 'diff', 'html', 'json', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'python', 'query', 'vim', 'vimdoc', 'yaml' },
       -- Autoinstall languages that are not installed
       auto_install = true,
       highlight = {
@@ -974,17 +1041,17 @@ require('lazy').setup({
   --  Uncomment any of the lines below to enable them (you will need to restart nvim).
   --
   -- require 'kickstart.plugins.debug',
-  -- require 'kickstart.plugins.indent_line',
-  -- require 'kickstart.plugins.lint',
-  -- require 'kickstart.plugins.autopairs',
+  require 'kickstart.plugins.indent_line',
+  require 'kickstart.plugins.lint',
+  require 'kickstart.plugins.autopairs',
   -- require 'kickstart.plugins.neo-tree',
   -- require 'kickstart.plugins.gitsigns', -- adds gitsigns recommend keymaps
 
   -- NOTE: The import below can automatically add your own plugins, configuration, etc from `lua/custom/plugins/*.lua`
   --    This is the easiest way to modularize your config.
   --
-  --  Uncomment the following line and add your plugins to `lua/custom/plugins/*.lua` to get going.
-  -- { import = 'custom.plugins' },
+  --  Personal plugins (claude-code, emoji, etc.) live in `lua/custom/plugins/*.lua`.
+  { import = 'custom.plugins' },
   --
   -- For additional information with loading, sourcing and examples see `:help lazy.nvim-🔌-plugin-spec`
   -- Or use telescope!
